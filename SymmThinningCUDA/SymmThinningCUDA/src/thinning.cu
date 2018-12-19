@@ -46,14 +46,14 @@ namespace thin
 		checkCudaErrors(cudaMemset(thinData.recBitsArr, 0x01, sizeof(RecBitsType) * thinData.arrSize));
 		checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 		checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-        
+
 		// IjkType* d_compactIjkArr;
 		// checkCudaErrors(cudaMalloc(&(thinData.compactIjkArr), sizeof(IjkType) * thinData.arrSize));
 		checkCudaErrors(cudaMemcpy(thinData.compactIjkArr, compactIjkVec.data(), sizeof(IjkType) * thinData.arrSize, cudaMemcpyHostToDevice));
 
 		unsigned curIter = 1;
 		unsigned lastIterSize = thinData.arrSize;
-        
+
 		dim3 threadsDim(_numThreads, 1U, 1U);
 		dim3 blocksDim((thinData.arrSize + threadsDim.x - 1U) / threadsDim.x, 1U, 1U);
 
@@ -65,11 +65,11 @@ namespace thin
 
 		while ((maxIter < 0) || (maxIter > 0 && curIter <= maxIter))
 		{
-			std::cout << "Current iteration: " << curIter 
+			std::cout << "Current iteration: " << curIter
 					<< ", size: " << lastIterSize << std::endl;
-            
+
 			clique::crucialIsthmus(thinData, blocksDim, threadsDim);
-            
+
 			unsigned curIterSize = cp::_countBit(thinData.recBitsArr, thinData.arrSize, REC_BIT_Y);
 
 			if (curIterSize == lastIterSize) break;
@@ -89,13 +89,13 @@ namespace thin
 			// 2. re-calculate blocksDim
 			checkCudaErrors(cudaFree(thinData.A_recBitsArr));
 			checkCudaErrors(cudaFree(thinData.B_recBitsArr));
-			
+
 			checkCudaErrors(cudaMalloc(&(thinData.A_recBitsArr), sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMalloc(&(thinData.B_recBitsArr), sizeof(RecBitsType) * thinData.arrSize));
-        
+
 			checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-			
+
 			blocksDim.x = (thinData.arrSize + threadsDim.x - 1U) / threadsDim.x;
 			blocksDim.y = 1U;
 			while (blocksDim.x > 32768U)
@@ -121,9 +121,13 @@ namespace thin
 		namespace cp = clique::_private;
 
 		unsigned lastIterSize = thinData.arrSize;
-        
+		
 		dim3 threadsDim(_numThreads, 1U, 1U);
 		dim3 blocksDim((thinData.arrSize + threadsDim.x - 1U) / threadsDim.x, 1U, 1U);
+
+		auto TIMER1 = std::chrono::high_resolution_clock::now();
+		auto TIMER2 = std::chrono::high_resolution_clock::now();
+		auto TIMER3 = std::chrono::high_resolution_clock::now();
 
 		while (blocksDim.x > 32768U)
 		{
@@ -133,27 +137,37 @@ namespace thin
 
 		while ((maxIter < 0) || (maxIter > 0 && curIter <= maxIter))
 		{
-			std::cout << "Current iteration: " << curIter 
+			std::cout << "Current iteration: " << curIter
 					<< ", size: " << lastIterSize << std::endl;
-            
+
+			TIMER2 = std::chrono::high_resolution_clock::now();
+
 			// crucialIsthmus(grid3D, Kset, D_XK, I_XK1);
 			// crucialIsthmusCUDA(compactFlatIjkVec, flatMngr, recBitsVec, numThreads);
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			clique::crucialIsthmus(thinData, blocksDim, threadsDim);
-            
+			TIMER_END(">>> persistenceIsthmusThinningCore::crucialIsthmus()", TIMER3);
+
 			unsigned curIterSize = cp::_countBit(thinData.recBitsArr, thinData.arrSize, REC_BIT_Y);
 			if (curIterSize == lastIterSize) break;
 
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			cp::_assignKern<<<blocksDim, threadsDim>>>(thinData.recBitsArr, thinData.arrSize, REC_BIT_Y, REC_BIT_X);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
-			
+			TIMER_END(">>> persistenceIsthmusThinningCore::_assignKern()", TIMER3);
+
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			cp::_updateBirthKern<<<blocksDim, threadsDim>>>(thinData.birthArr, thinData.recBitsArr, thinData.arrSize, curIter);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
+			TIMER_END(">>> persistenceIsthmusThinningCore::_updateBirthKern()", TIMER3);
 
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			cp::_unionKsetByBirth<<<blocksDim, threadsDim>>>(thinData.recBitsArr, thinData.birthArr, thinData.arrSize, curIter, p);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
+			TIMER_END(">>> persistenceIsthmusThinningCore::_unionKsetByBirth()", TIMER3);
 
 			thinData.arrSize = cp::_shrinkArrs(thinData, blocksDim, threadsDim);
 			assert(thinData.arrSize == curIterSize);
@@ -161,15 +175,22 @@ namespace thin
 			// To-Do:
 			// 1. clean up the d_A/B_recBitsArr accordingly
 			// 2. re-calculate blocksDim
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaFree(thinData.A_recBitsArr));
 			checkCudaErrors(cudaFree(thinData.B_recBitsArr));
-			
+			TIMER_END(">>> persistenceIsthmusThinningCore::cudaFree(A&B)", TIMER3);
+
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaMalloc(&(thinData.A_recBitsArr), sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMalloc(&(thinData.B_recBitsArr), sizeof(RecBitsType) * thinData.arrSize));
-        
+			TIMER_END(">>> persistenceIsthmusThinningCore::cudaMalloc(A&B)", TIMER3);
+
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-			
+			TIMER_END(">>> persistenceIsthmusThinningCore::cudaMemset(A&B)", TIMER3);
+
+			TIMER3 = std::chrono::high_resolution_clock::now();
 			blocksDim.x = (thinData.arrSize + threadsDim.x - 1U) / threadsDim.x;
 			blocksDim.y = 1U;
 			while (blocksDim.x > 32768U)
@@ -177,13 +198,16 @@ namespace thin
 				blocksDim.x /= 2;
 				blocksDim.y *= 2;
 			}
+			TIMER_END(">>> persistenceIsthmusThinningCore::while blocks", TIMER3);
 
 			lastIterSize = curIterSize;
 			++curIter;
+			TIMER_END(">>> persistenceIsthmusThinningCore::while iter", TIMER2);
 		}
+		TIMER_END(">>> persistenceIsthmusThinningCore::while all", TIMER1);
 	}
 
-	void persistenceIsthmusThinning(const std::vector<IjkType>& compactIjkVec, const std::vector<ObjIdType>& voxelIdVec, std::vector<IjkType>& D_XK, 
+	void persistenceIsthmusThinning(const std::vector<IjkType>& compactIjkVec, const std::vector<ObjIdType>& voxelIdVec, std::vector<IjkType>& D_XK,
 									const IjkType& size3D, unsigned p, int maxIter)
 	{
 		// using namespace clique;
@@ -199,23 +223,23 @@ namespace thin
 		DevDataPack thinData(packInitParams);
 
         thinData.alloc();
-		
+
 		checkCudaErrors(cudaMemset(thinData.recBitsArr, 0x01, sizeof(RecBitsType) * thinData.arrSize));
 		checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 		checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-        
+
 		checkCudaErrors(cudaMemcpy(thinData.compactIjkArr, compactIjkVec.data(), sizeof(IjkType) * thinData.arrSize, cudaMemcpyHostToDevice));
 
 		if (thinData.useVoxelID())
 		{
 			checkCudaErrors(cudaMemcpy(thinData.voxelIdArr, voxelIdVec.data(), sizeof(ObjIdType) * thinData.arrSize, cudaMemcpyHostToDevice));
 		}
-		
+
 		checkCudaErrors(cudaMemset(thinData.birthArr, 0, sizeof(unsigned) * thinData.arrSize));
 
 		unsigned curIter = 0;
 		persistenceIsthmusThinningCore(thinData, curIter, p, maxIter);
-        
+
 		D_XK.clear();
 		D_XK.resize(thinData.arrSize);
 		checkCudaErrors(cudaMemcpy(D_XK.data(), thinData.compactIjkArr, sizeof(IjkType) * thinData.arrSize, cudaMemcpyDeviceToHost));
@@ -229,7 +253,7 @@ namespace thin
 		persistenceIsthmusThinning(compactIjkVec, fakeVoxelIdVec, D_XK, size3D, p, maxIter);
 	}
 
-	void oneChunkThinning(details::DevDataPack& thinData, unsigned curIter, unsigned dim, 
+	void oneChunkThinning(details::DevDataPack& thinData, unsigned curIter, unsigned dim,
 		unsigned p, const dim3& blocksDim, const dim3& threadsDim)
 	{
 		using namespace thin::clique;
@@ -264,7 +288,7 @@ namespace thin
 			cp::_assignKern<<<blocksDim, threadsDim>>>(thinData.recBitsArr, thinData.arrSize, REC_BIT_Y, REC_BIT_X);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
-			
+
 			cp::_updateBirthKern<<<blocksDim, threadsDim>>>(thinData.birthArr, thinData.recBitsArr, thinData.arrSize, curIter);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());

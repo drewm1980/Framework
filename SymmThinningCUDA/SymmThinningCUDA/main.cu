@@ -5,6 +5,14 @@
 #include "thinning.h"
 #include "h5_io.h"
 
+// For profiling execution times
+#include <chrono>
+#ifndef TIMER_END
+#define TIMER_END(str, start) std::cout << std::setw(6) << std::right << \
+  std::chrono::duration_cast<std::chrono::milliseconds>( \
+	std::chrono::high_resolution_clock::now()-start).count() << \
+	" ms " << str << std::endl;
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -36,7 +44,9 @@ int main(int argc, char *argv[])
 	thin::initDevice();
 	thin::setNumThreadsPerBlock(196U);
 
+	auto TIMER = std::chrono::high_resolution_clock::now();
 	thin::chunkwiseThinning(sliceIoMngr, size3D, curIter, curDim, p, maxIter);
+	TIMER_END("> main::chunkwiseThinning()", TIMER);
 	thin::shutdownDevice();
 
 
