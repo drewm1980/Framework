@@ -7,6 +7,8 @@
 #include <string>
 #include <sstream>
 #include <boost/filesystem.hpp>
+// for archive
+#include <chrono>
 
 #include <H5Cpp.h>
 
@@ -219,6 +221,50 @@ namespace h5_io
 			m_dumpChunkRangeMap.clear();
 		}
 
+		void archive(unsigned curIter)
+		{
+			//boost::filesystem::path sourcedir(m_newGroupname);
+			boost::filesystem::path sourcedir(m_oldGroupname);
+
+			std::chrono::steady_clock::time_point time = std::chrono::steady_clock::now();
+			// auto time = std::chrono::time_point::time_since_epoch();
+			//auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(time).count();
+
+			std::stringstream ss;
+			ss << "archive/iter_" << curIter << "_" << time.time_since_epoch().count();
+			boost::filesystem::path destdir(ss.str());
+
+			std::cout << "h5_io.h:archive() from " << sourcedir << " to " << destdir << std::endl;
+
+			if (! boost::filesystem::is_directory("archive"))
+				boost::filesystem::create_directory("archive");
+
+			if (! boost::filesystem::is_directory(destdir))
+				boost::filesystem::copy_directory(sourcedir, destdir);
+			else
+				std::cout << "!!!!!!! already exists" << destdir << "!!!!!!!" << std::endl;
+			//boost::filesystem::create_directory(ss.str());
+			// copy files
+			// remove all the files in the "old" group
+			boost::filesystem::directory_iterator end;
+			for(boost::filesystem::directory_iterator it(sourcedir); it != end; ++it)
+			{
+				try
+				{
+					boost::filesystem::path current(it->path());
+					if(boost::filesystem::is_regular_file(current))
+					{
+						boost::filesystem::copy_file(it->path(), destdir / current.filename());
+					}
+				}
+				catch(const std::exception &ex)
+				{
+					std::cerr << ex.what() << std::endl;
+					// ex;
+				}
+			}
+
+		}
         class Iterator
         {
         public:

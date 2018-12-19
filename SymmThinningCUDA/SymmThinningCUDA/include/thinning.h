@@ -552,6 +552,9 @@ namespace thin
 			chp::_dumpChunk(h_thinData, mngr, procBeginIndex, procEndIndex);
 			TIMER_END(">> chunkwiseThinning::_dumpChunk()", TIMER);
 
+			// archive before swap
+      mngr.archive(curIter);
+
 			TIMER = std::chrono::high_resolution_clock::now();
 			mngr.endOneThinningStep();
 			mngr.swapGroup();
