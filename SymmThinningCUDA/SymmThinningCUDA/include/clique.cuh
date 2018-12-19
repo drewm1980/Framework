@@ -1,7 +1,7 @@
 #ifndef CLIQUE_CUH
 #define CLIQUE_CUH
 
-// This file defines the CliqueChecker<T> class. It also provides the 
+// This file defines the CliqueChecker<T> class. It also provides the
 // utilities to detect all the d-cliques that are critical for X.
 //
 // Users do not need to touch this file.
@@ -21,12 +21,21 @@
 #include "attachment.cuh"
 #include "neighbor.cuh"
 
+// For profiling execution times
+#include <chrono>
+#ifndef TIMER_END
+#define TIMER_END(str, start) std::cout << std::setw(6) << std::right << \
+  std::chrono::duration_cast<std::chrono::milliseconds>( \
+	std::chrono::high_resolution_clock::now()-start).count() << \
+	" ms " << str << std::endl;
+#endif
+
 namespace thin
 {
 	namespace clique
 	{
 		namespace tp = thin::_private;
-		
+
 		// For each d dimension clique, there is a corresponding d-dim policy, which is
 		// used to setup the parameters of the generic clique checker or provide
 		// different concrete implementation through a unified iternface.
@@ -96,7 +105,7 @@ namespace thin
 				// given face token.
 				__device__ static uint8_t matBeginByFaceToken(FaceTokenType);
 			};
-    
+
 			// Policy for 2-clique checker.
 			class Dim2CliquePolicy
 			{
@@ -120,12 +129,12 @@ namespace thin
 				__device__ static uint8_t nbOffsIndexArrBegin();
 				// The end index of the Neighbor Voxel spatial mask for a 2-clique.
 				__device__ static uint8_t nbOffsIndexArrEnd();
-				
+
 				// Return the beginning index of the transformation matrix according to the
 				// given face token.
 				__device__ static uint8_t matBeginByFaceToken(FaceTokenType);
 			};
-    
+
 			// Policy for 1-clique checker.
 			class Dim1CliquePolicy
 			{
@@ -149,12 +158,12 @@ namespace thin
 				__device__ static uint8_t nbOffsIndexArrBegin();
 				// The end index of the Neighbor Voxel spatial mask for a 1-clique.
 				__device__ static uint8_t nbOffsIndexArrEnd();
-				
+
 				// Return the beginning index of the transformation matrix according to the
 				// given face token.
 				__device__ static uint8_t matBeginByFaceToken(FaceTokenType);
 			};
-    
+
 			// Policy for 0-clique checker.
 			class Dim0CliquePolicy
 			{
@@ -178,7 +187,7 @@ namespace thin
 				__device__ static uint8_t nbOffsIndexArrBegin();
 				// The end index of the Neighbor Voxel spatial mask for a 0-clique.
 				__device__ static uint8_t nbOffsIndexArrEnd();
-				
+
 				// Return the beginning index of the transformation matrix according to the
 				// given face token.
 				__device__ static uint8_t matBeginByFaceToken(FaceTokenType);
@@ -208,7 +217,7 @@ namespace thin
 			// @refIjk in @thinData, which help reduces the searching size by half on
 			// average.
 			__device__ bool
-			_findInX(ArrIndexType& foundIndex, const details::DevDataPack& thinData, const IjkType& refIjk, 
+			_findInX(ArrIndexType& foundIndex, const details::DevDataPack& thinData, const IjkType& refIjk,
 					const ArrIndexType refIndex, const OffsetIjkType& offs);
 
 			// Check to see if @refIjk + @offs is in @thinData.
@@ -236,7 +245,7 @@ namespace thin
 			// [precondition] @thinData.procBeginIndex < @thinData.procEndIndex <=
 			// @thinData.arrSize
 			template <typename Checker>
-			__global__ void 
+			__global__ void
 			_findDCriticalCliqueKern(details::DevDataPack thinData)
 			{
 				using namespace details;
@@ -273,7 +282,7 @@ namespace thin
 						{
 							// Requirement is satisfied, at this point we can check if the clique is critical.
 							uint8_t criticalResult = Checker::checkCliqueCritical(vxIjk, vxIndex, thinData, faceToken);
-							
+
 							if (criticalResult != CLQ_REGULAR)
 							{
 								// if it's critical, union ecVoxelSet into allCcVoxelSet
@@ -324,13 +333,13 @@ namespace thin
 		// be formed at current voxel.
 		//
 		// Each voxel is itself a 3-clique, we cannot eliminate this check.
-    
+
 		// Each clique is Regular or Critical for complex X. And if it is critical, it can
 		// be 1-critical, 2-critical or (2+)-critical. In this project, however, we are
 		// only concerned in identifying 1-critical cliques, or 1-isthmuses, since the
 		// preservation of such cliques will result in the curvilinear skeleton.
 		// * The (2+)-critical clique is useful for finding surface skeleton.
-		
+
 		namespace cp = thin::clique::_private;
 
 		template <typename DimPolicy>
@@ -349,7 +358,7 @@ namespace thin
 			}
 
 			// Check if a d-clique can be formed at vxIjk.
-			__device__ static bool 
+			__device__ static bool
 			canFormClique(const IjkType& vxIjk, ArrIndexType vxIndex, const details::DevDataPack& thinData, const FaceTokenType faceToken)
 			{
 				if (DimPolicy::ecOffsetArrEnd() == 0) return true;
@@ -357,8 +366,8 @@ namespace thin
 				// has the following format:
 				// [X_1, X_2, ... X_m1, -1, X_(m1+1), X_(m1+2), ..., X_m2, -1, ..., X_mk, -1]
 				//
-				// Each X_i is a valid index to the Essential Clique offset array. Every two 
-				// core clique index tuples are separated by -1, with the array ending by another -1. 
+				// Each X_i is a valid index to the Essential Clique offset array. Every two
+				// core clique index tuples are separated by -1, with the array ending by another -1.
 				uint8_t coreCliqueIdx = DimPolicy::coreCliqueArrBegin();
 				while (coreCliqueIdx < DimPolicy::coreCliqueArrEnd())
 				{
@@ -368,7 +377,7 @@ namespace thin
 					if (ccInEcIndex == -1)
 					{
 						// If this branch is reached, that means vxIjk added with all the ec offsets
-						// in the current core clique index tuple exist in compactIjkArr, then 
+						// in the current core clique index tuple exist in compactIjkArr, then
 						// a d-clique can be formed at vxIjk's d-face indicated by faceToken.
 						return true;
 					}
@@ -391,7 +400,7 @@ namespace thin
 
 				return false;
 			}
-        
+
 			// Find the voxels that form the Essential Clique at @vxIjk.
 			//
 			// [precondition] @vxIjk indeed forms a d-clique in grid3D at the
@@ -401,19 +410,19 @@ namespace thin
 			//
 			// [postcondition] memory from foundEcIndexArr to foundEcIndexArr + [return]
 			// stores the found indices of the voxels forming this Ec.
-			__device__ static uint8_t 
+			__device__ static uint8_t
 			findEssentialClique(const IjkType& vxIjk, ArrIndexType vxIndex, const details::DevDataPack& thinData, const FaceTokenType faceToken, ArrIndexType* foundEcIndexArr)
 			{
 				uint8_t numEcVoxel = 0;
 				uint8_t ecOffsetIdx = DimPolicy::ecOffsetArrBegin();
-			
+
 				while (ecOffsetIdx < DimPolicy::ecOffsetArrEnd())
 				{
 					OffsetIjkType tranOffs;
 					cp::_transform(DimPolicy::matBeginByFaceToken(faceToken), cp::_fetchEcOffset(ecOffsetIdx), tranOffs);
 
 					ArrIndexType foundIndex;
-					
+
 					if (cp::_findInX(foundIndex, thinData, vxIjk, vxIndex, tranOffs))
 					{
 						*foundEcIndexArr = foundIndex;
@@ -429,7 +438,7 @@ namespace thin
 
 				return numEcVoxel;
 			}
-		       
+
 			// Find the voxels that form the Neighbor of the essential clique at voxelIjk.
 			//
 			// [precondition]: voxelIjk indeed forms an essential d-clique in grid3D at
@@ -439,11 +448,11 @@ namespace thin
 			// neighbor for an EC is surely a subset of those for a single voxel. NbMask
 			// is designed to store the neighbor voxels for just one voxel, hence it's
 			// re-usable for Clique neighbor.
-			__device__ static nb::NbMaskType 
+			__device__ static nb::NbMaskType
 			findCliqueNeighbor(const IjkType& vxIjk, ArrIndexType vxIndex, const details::DevDataPack& thinData, const FaceTokenType faceToken)
 			{
 				nb::NbMaskType cliqueNbMask = 0;
-            
+
 				uint8_t nbOffsIndexIter = DimPolicy::nbOffsIndexArrBegin();
 				uint8_t nbOffsetIdx;
 
@@ -453,7 +462,7 @@ namespace thin
 
 					OffsetIjkType tranOffs;
 					cp::_transform(DimPolicy::matBeginByFaceToken(faceToken), nb::fetchNbOffset(nbOffsetIdx), tranOffs);
-					
+
 					// if (cp::_containsInX(thinData.compactIjkArr, thinData.recBitsArr, thinData.arrSize, vxIjk, vxIndex, tranOffs, thinData.size3D))
 					if (cp::_containsInX(thinData, vxIjk, vxIndex, tranOffs))
 					{
@@ -465,7 +474,7 @@ namespace thin
 
 				return cliqueNbMask;
 			}
-		
+
 			// Check if the essential clique at @vxIjk (with the face at @faceToken
 			// being shared) is Regular/Critical. If it is Critical, then if it is
 			// 1-Critical.
@@ -473,9 +482,9 @@ namespace thin
 			// [precondition] @vxIjk indeed forms a d-clique in @thinData at the
 			// d-face indicated by @faceToken. This is the user's responsibility.
 			// [note] 2-Critical and (2+)-Critical are ignored in this project.
-			__device__ static uint8_t 
+			__device__ static uint8_t
 			checkCliqueCritical(const IjkType& vxIjk, ArrIndexType vxIndex, const details::DevDataPack& thinData, const FaceTokenType faceToken)
-		
+
 			{
 				// Find out the voxels that are the neighbor of the essential clique
 				nb::NbMaskType cliqueNbMask = findCliqueNeighbor(vxIjk, vxIndex, thinData, faceToken);
@@ -491,7 +500,7 @@ namespace thin
 						if (tp::_readBit(cliqueNbMask, nthNb))
 						{
 							nb::NbMaskType nbMask = cp::_genNbMaskFromCliqueNbMask(cliqueNbMask, nthNb);
-							
+
 							attach::Attachment attach = attach::generateAttachment(nbMask);
 							// If attach is collapsible, then the n-th voxel in cliqueNbMask is Simple.
 							// PAY attention to which neighbor mask is used, and which bit is cleared!
@@ -551,16 +560,22 @@ namespace thin
 				exit(1);
 			}
 
+			auto TIMER = std::chrono::high_resolution_clock::now();
 			cp::_findDCriticalCliqueKern<Checker><<<blocksDim, threadsDim, Checker::numEcVoxels() * threadsDim.x * sizeof(ArrIndexType)>>>(thinData);
-			cudaDeviceSynchronize();
-			checkCudaErrors(cudaGetLastError());
-			
-			cp::_unionKern<<<blocksDim, threadsDim>>>(thinData.A_recBitsArr, thinData.recBitsArr, thinData.arrSize, REC_BIT_A, REC_BIT_Y);
+			TIMER_END(">>>>> dimCrucialIsthmus::Checker()", TIMER);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
 
-			cp::_unionKern<<<blocksDim, threadsDim>>>(thinData.B_recBitsArr, thinData.recBitsArr, thinData.arrSize, REC_BIT_B, REC_BIT_Z);
+      TIMER = std::chrono::high_resolution_clock::now();
+			cp::_unionKern<<<blocksDim, threadsDim>>>(thinData.A_recBitsArr, thinData.recBitsArr, thinData.arrSize, REC_BIT_A, REC_BIT_Y);
+			TIMER_END(">>>>> dimCrucialIsthmus::_unionKern(a)", TIMER);
 			cudaDeviceSynchronize();
+			checkCudaErrors(cudaGetLastError());
+
+      TIMER = std::chrono::high_resolution_clock::now();
+			cp::_unionKern<<<blocksDim, threadsDim>>>(thinData.B_recBitsArr, thinData.recBitsArr, thinData.arrSize, REC_BIT_B, REC_BIT_Z);
+			TIMER_END(">>>>> dimCrucialIsthmus::_unionKern(b)", TIMER);
+  		cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
 		}
 

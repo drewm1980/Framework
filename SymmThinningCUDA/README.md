@@ -2,23 +2,119 @@
 
 This project implements the symmetric parallel thinning algorithm with persistence [1] that supports a chunk-wise thinnign scheme. The project is implemeneted in C++11/CUDA 7.5. `thinning.h` header file provides all the necessary functions of the algorithm.
 
+### Setup Linux
+
+Dependencies:
+
+    apt install nvidia-cuda-toolkit libboost1.65-dev \
+      libboost-system1.65-dev libboost-filesystem1.65-dev \
+      libhdf5-dev cmake
+
+Prepare make files with Cmake:
+
+    mkdir SymmThinningCUDA/SymmThinningCUDA/build
+    cd SymmThinningCUDA/SymmThinningCUDA/build
+    CMAKE_INCLUDE_PATH=/usr/include/hdf5/serial cmake ..
+    # Compile with debug symbols and single threaded:
+    # CMAKE_INCLUDE_PATH=/usr/include/hdf5/serial cmake -DCMAKE_BUILD_TYPE=Debug ..
+
+Code iterates over data writing it back to directory. Save the original data:
+
+    cd SymmThinningCUDA/SymmThinningCUDA/
+    cp -r oldH5 originalH5
+
+Compile:
+
+    CPATH=/usr/include/hdf5/serial/ \
+      LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/hdf5/serial/ \
+      make
+
+Prepare data for run (before each run):
+
+      cd .. && \
+      rm -rf oldH5/* newH5/* archive/
+      cp originalH5/* oldH5/.
+
+Run with or without profiling:
+
+    ```
+    nvprof -fo main-%p.nvprof ./build/main 256 oldH5 80 10 \
+      && nvvp $(ls -t ../*.nvprof | head -1)
+    # Or profile with valgrind:
+    # sudo apt install valgrind kcachegrind graphviz
+    # rm -rf oldH5/* newH5/*; cp originalH5/* oldH5/. && \
+    # valgrind --tool=callgrind ./build/main && \
+    # kcachegrind $(ls -t callgrind.out.*|head -1)
+    ```
+
+- 256 is the dimensions (256x256x256)
+- oldH5 is directory where h5 data is found
+- 80 is the maximum number of iterations to run
+- 10 is the **p** size described in paper
+
+### HDF5 file format
+
+In the original h5 files the xyz coordinates are stored in the following manner.
+
+- **X** and **Y*** are combined before being stored as a row entry in the h5 data.  
+  They are combined in the following manner: ``entry = (y*dimension)+x``  
+	Example: ``48701 = (y 190 * 256 dimension) + x 61``  
+	To extract the components from the combined value:  
+	- ``y = value / dimension`` (e.g. ``y 190 = 48701 / 256``)
+	- ``x = value % dimension`` (e.g. ``x 61 = 48701 % 256``)
+	- see functions ``x()`` and ``y()`` at ``h5_io.h:229``
+- **Z** is inferred from the slice values are stored in.
+
+see ``h5_from_pointcloud.py`` for an example conversion to this format.
+
+To examine the example h5 files install "HDF Compass" on Linux or [download](https://support.hdfgroup.org/products/java/release/download.html#bin)
+the official HDFView-3.0 application (e.g. the [Centos version](https://www.hdfgroup.org/package/hdfview-centos-7-3/?wpdmdl=12999&refresh=5c06b278529c11543942776) ``HDFView-3.0-centos7_64/HDFView-3.0.0-Linux/HDFView/3.0.0/hdfview.sh``)
+
+### Visualize data
+
+Draw the data in 3d:
+
+    python ./h5_visualize.py 256 ./originalH5/
+
+![](h5_visualize.png)
+
+Currently the code attempts to archive intermediary stages into ./archive and
+these could also be visualized:
+
+    python ./h5_visualize.py 256 ./archive/*
+
+
+### Profiling
+
+When examining the efficiency of this package we observe that the example
+requires 34 iterations. The first takes 253 ms with the last taking 8 ms. In
+total all iterations take 1336 ms. See ``run_256.log`` file for details. This
+can also be confirmed by reviewing in nvvp (``nvvp main-3304.nvprof``)
+
+![](main-3304.nvprof.png)
+
+When running on a different dataset, example a dimension of 480x480x480, we
+observe thinning takes a total of 44 iterations. The first takes ms with the
+last 71ms. In total all iterations take 11298 ms. See ``run_480.log`` for
+details and review nvvp to confirm (``nvvp main-3982.nvprof``).
+
 ### Data Types
 
 All the data types are defined in `thinning_base.h`.
 
 - `thin::IjkType`: This type is used to store the discrete coordinate of a voxel. It is the alias of `uint3` provided by CUDA.
-- `thin::ObjIdType`: This type is used to store the object ID. It is the alias of `uint32_t`. 
-- `thin::RecBitsType`: Because each voxel is associated with some intermediate states (A voxel might be added to several sets: X/Y/K/A/B [1]) during the thinning process, we record the states in different bits of the object of this type. The type name is short for Recording Bits. It is the alias of `unsigned char`. 
+- `thin::ObjIdType`: This type is used to store the object ID. It is the alias of `uint32_t`.
+- `thin::RecBitsType`: Because each voxel is associated with some intermediate states (A voxel might be added to several sets: X/Y/K/A/B [1]) during the thinning process, we record the states in different bits of the object of this type. The type name is short for Recording Bits. It is the alias of `unsigned char`.
 
 	The last four bits of a `RecBitsType` object is used to store if the associated voxel is in set X, K, Y, Z, respectively:
-	
+
 	```
 	// RecBitType
-	
+
 	|----- 3 -----|----- 2 -----|----- 1 -----|----- 0 -----|
 	|   in set Z  |   in set Y  |   in set K  |   in set X  |
 	```
-	
+
 	Set X denotes the original voxel set, therefore, **the initialize of the intermediate state for each voxel should always be 1**. (For the complete meaning of set X, K, Y and Z, please refer to Algorithm 1 and 2 in [1]).
 
 ### Functions
@@ -70,19 +166,19 @@ The slice manager can be viewed as a state machine, since it only manages one sl
 - `void load(unsigned k)`: This function loads the `k`-th slice into the RAM.
 - `void alloc(unsigned k)`: This function allocates an empty slice data inside the RAM.
 - `void dump()`: This function writes the current slice data back to the external storage.
-- `void numSlices()`: This function returns the number of the slices the dataset contains. 
+- `void numSlices()`: This function returns the number of the slices the dataset contains.
 - `void numChunks()`: This function returns the number of the chunks the dataset are divided into.
 - `std::pair<unsigned, unsigned> sliceRange(unsigned i)`: This function returns a pair of the beginning and the ending index of the slices for the `i`-th chunk.
 - `void storeID(unsigned x, unsigned y, unsigned ID)`: This function stores the object ID of the voxel at `(x, y)`.
 - `void storeBirth(unsigned x, unsigned y, unsigned b)`: This function stores the birth (for persistence filtering) of the voxel at `(x, y)`
-- `void storeRecBits(unsigned x, unsigned y, RecBitsType bits)`: This functions stores the meta intermediate states of the voxel at `(x, y)`. 
+- `void storeRecBits(unsigned x, unsigned y, RecBitsType bits)`: This functions stores the meta intermediate states of the voxel at `(x, y)`.
 - `void beginOneThinningStep()`: This function can be used as an intialization step before each thinning step.
 - `void endOneThinningStep()`: This function can be used as a postprocessing step after each thinning step.
 - `void swapGroup()`: This function swaps the dataset contained in the two groups, so that the dataset in the output group will become the input in the next iteration. (Recall that the chunk-wise thinning algorithm stores the output result of a chunk in a separate group from the input.)
 
 -
 
-`h5_io::H5SliceIoManager` compacts multiple slices into one HDF5 file to reduce the IO time. Relative index is used for each slice within one HDF5 file. For instance, if there are $5$ slices in one chunk, then the datasets in this file are named as $0, 1, 2, 3, 4$. 
+`h5_io::H5SliceIoManager` compacts multiple slices into one HDF5 file to reduce the IO time. Relative index is used for each slice within one HDF5 file. For instance, if there are $5$ slices in one chunk, then the datasets in this file are named as $0, 1, 2, 3, 4$.
 
 If a slice is not empty, then the assoicated dataset will be a $3 \times N$ matrix, where $N$ is the number of voxels in the dataset. The first row stores the flat coordinate `x + y * width`, the second row stores the object ID and the third one stores the combination of the birth and the intermediate states for each voxel. Otherwise if the slice if empty, **it is still associated with a dataset of size $1\times 1$**, which is used as a placeholder.
 
@@ -142,21 +238,21 @@ During the thinning process, the number of voxels in each slice will keep decrea
 ```
 
 ```
-// @prefix: Dataset chunks are indexed sequentially starting from 0. 
+// @prefix: Dataset chunks are indexed sequentially starting from 0.
 //		This string is the prefix of the index of the chunk filename
-//		(the suffix is always ".h5"). As an example, if the filename 
-//		follows the pattern of "data_N.h5", where "N" is the index, 
+//		(the suffix is always ".h5"). As an example, if the filename
+//		follows the pattern of "data_N.h5", where "N" is the index,
 //		then the prefix string should be "data_".
 // @oldGroup: Relative path to the old group.
 // @newGroup: Relative path to the new group.
 // @w: Width of each slice.
 // @h: Height of each slice.
 // @numSlices: Total number of slices of the dataset.
-// @mapFilename: Filename of the chunk range mapping file, 
+// @mapFilename: Filename of the chunk range mapping file,
 //		should be inside the folder specified by @oldGroup.
-// @maxNumVoxels: An approximate upperbound of the number of voxels 
-//		each chunk should have. Voxel data of multiple slices will 
-//		be stored in one chunk until the number of voxels in the 
+// @maxNumVoxels: An approximate upperbound of the number of voxels
+//		each chunk should have. Voxel data of multiple slices will
+//		be stored in one chunk until the number of voxels in the
 //		chunk exceeds this number.
 
 h5_io::H5SliceIoManager(
@@ -188,7 +284,7 @@ h5_io::H5SliceIoManager(
 	|	  |-- "data_1.h5"
 	|	  |-- ...
 	|	  |-- "data_15.h5"
-	|	  |-- "chunkMap.txt" # chunk mapping file is in the same folder as chunk data file. 
+	|	  |-- "chunkMap.txt" # chunk mapping file is in the same folder as chunk data file.
 	|
 	|-- "new"
 ```
@@ -203,10 +299,10 @@ int main()
 	unsigned numSlices = 256U;
 	thin::IjkType size3D = thin::makeIjk(width, height, numSlices);
 	unsigned maxNumVoxelsPerChunk = 1000000U;
-	
+
 	h5_io::H5SliceManager sliceMngr(
-			"data_", "old", "new", 
-			width, height, numSlices, 
+			"data_", "old", "new",
+			width, height, numSlices,
 			"chunkMap.txt", maxNumVoxelsPerChunk);
 	// Each thinning step is determined by both the current iteration
 	// and the current dimension: (curIter, curDim).
@@ -215,11 +311,11 @@ int main()
 	// (curIter + 1, 3) -> ... -> (maxIter - 1, 0)
 	unsigned curIter = 0, curDim = 3U, maxIter = 50U;
 	unsigned p = 10U;
-	
+
 	thin::initDevice();
 	thin::chunkwiseThinning(sliceMngr, size3D, curIter, curDim, p, maxIter);
 	thin::shutdownDevice();
-	
+
 	return 0;
 }
 ```

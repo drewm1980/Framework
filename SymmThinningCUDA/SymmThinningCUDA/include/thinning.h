@@ -7,6 +7,15 @@
 #include "thinning_base.cuh"
 #include "clique.cuh"
 
+// For profiling execution times
+#include <chrono>
+#ifndef TIMER_END
+#define TIMER_END(str, start) std::cout << std::setw(6) << std::right << \
+  std::chrono::duration_cast<std::chrono::milliseconds>( \
+	std::chrono::high_resolution_clock::now()-start).count() << \
+	" ms " << str << std::endl;
+#endif
+
 namespace thin
 {
 	// Initialize the device side resources for this module to work.
@@ -246,16 +255,16 @@ namespace thin
 				// Compute the begin/end index of the BOTTOM reference slice.
 				unsigned refBeginSlice = beginSlice < 2U ? 0 : beginSlice - 2U;
 				unsigned refEndSlice = beginSlice;
-        
+
 				_loadSlices(policy, h_thinData, mngr, refBeginSlice, refEndSlice);
-        
+
 				procBeginIndex = (unsigned)h_thinData.compactIjkVec.size();
 				// Compute the end index of the slice for thinning.
 				unsigned endSlice = beginSlice + chunkSize;
 				endSlice = endSlice < numSlices ? endSlice : numSlices;
 				// Load all those slices for thinning.
 				_loadSlices(policy, h_thinData, mngr, beginSlice, endSlice);
-        
+
 				procEndIndex = (unsigned)h_thinData.compactIjkVec.size();
 				// Compute the begin/end index of the TOP reference slice
 				refBeginSlice = endSlice;
@@ -294,16 +303,16 @@ namespace thin
 				unsigned x, y;
 				x = h_thinData.compactIjkVec[index].x;
 				y = h_thinData.compactIjkVec[index].y;
-        
+
 				mngr.storeID(x, y, h_thinData.voxelIdVec[index]);
-        
+
 				RecBitsType bits = h_thinData.recBitsVec[index];
 				mngr.storeIn_K(x, y, tp::_readBit(bits, REC_BIT_K));
 				mngr.storeIn_DXK(x, y, tp::_readBit(bits, REC_BIT_Y));
 				mngr.storeIn_IXK(x, y, tp::_readBit(bits, REC_BIT_Z));
 				mngr.storeIn_A(x, y, tp::_readBit(bits, HOST_REC_BIT_A));
 				mngr.storeIn_B(x, y, tp::_readBit(bits, HOST_REC_BIT_B));
-        
+
 				mngr.storeBirth(x, y, h_thinData.birthVec[index]);
 			}
 			// Stores the data of the voxel in `h_thinData` pointed by `index` into the
@@ -316,7 +325,7 @@ namespace thin
 				unsigned x, y;
 				x = h_thinData.compactIjkVec[index].x;
 				y = h_thinData.compactIjkVec[index].y;
-        
+
 				mngr.storeID(x, y, h_thinData.voxelIdVec[index]);
 				mngr.storeRecBits(x, y, h_thinData.recBitsVec[index]);
 				mngr.storeBirth(x, y, h_thinData.birthVec[index]);
@@ -344,7 +353,7 @@ namespace thin
 						}
 						++index;
 					}
-            
+
 					mngr.dump();
 				}
 
@@ -359,11 +368,11 @@ namespace thin
 			}
 		}; // namespace thin::chunk::_private;
 	}; // namespace thin::chunk;
-	
+
 	// thinning algorithm one a single chunk.
 	// [param] curIter: current iteration
 	// [param] dim: current dimension (rank) of the cliques to detect
-	void oneChunkThinning(details::DevDataPack& thinData, unsigned curIter, unsigned dim, 
+	void oneChunkThinning(details::DevDataPack& thinData, unsigned curIter, unsigned dim,
 								unsigned p, const dim3& blocksDim, const dim3& threadsDim);
 
 	// Run the thinning on all the chunks sequentially at iteration `curIter` for
@@ -374,22 +383,22 @@ namespace thin
     {
 		using namespace details;
 		namespace chp = chunk::_private;
-        
+
 		unsigned numChunks = mngr.numChunks();
 		if (numChunks == 0) return;
-        
+
 		unsigned numSlices = mngr.numSlices();
 
 		HostDataPack h_thinData;
 		HostDataPack h_thinDataBuffer;
-        
+
         // unsigned beginSlice = 0;
         bool hasOutput = false;
-        
+
         unsigned procBeginIndex, procEndIndex;
         unsigned lastProcBeginIndex, lastProcEndIndex;
         unsigned nextProcBeginIndex, nextProcEndIndex;
-        
+
 		mngr.beginOneThinningStep();
         // chp::_loadChunk(policy, h_thinData, mngr, beginSlice, chunkSize, numSlices, procBeginIndex, procEndIndex);
         chp::_loadChunkI(h_thinData, mngr, 0, numSlices, procBeginIndex, procEndIndex);
@@ -412,7 +421,7 @@ namespace thin
 					chp::_loadChunkI(h_thinDataBuffer, mngr, chunkIdx + 1U, numSlices, nextProcBeginIndex, nextProcEndIndex);
 				}
             });
-            
+
 			DevDataPack::InitParams packInitParams;
 			packInitParams.arrSize = h_thinData.compactIjkVec.size();
 			packInitParams.size3D = size3D;
@@ -421,13 +430,13 @@ namespace thin
 
 			DevDataPack thinData(packInitParams);
 			thinData.alloc();
-			
+
 			_copyThinningDataToDevice(thinData, h_thinData);
-			
+
 			thinData.procBeginIndex = procBeginIndex;
 			thinData.procEndIndex = procEndIndex;
 
-			std::cout << "  chunk: " << chunkIdx << ", size: " << thinData.arrSize 
+			std::cout << "  chunk: " << chunkIdx << ", size: " << thinData.arrSize
 					<< ", proc begin: " << procBeginIndex << ", proc end: " << procEndIndex << std::endl;
 
 			dim3 threadsDim(numThreadsPerBlock(), 1U, 1U);
@@ -445,18 +454,18 @@ namespace thin
 
             hasOutput = true;
             ioThread.join();
-            
+
             h_thinData.swap(h_thinDataBuffer);
-            
+
             lastProcBeginIndex = procBeginIndex;
             lastProcEndIndex = procEndIndex;
-            
+
             procBeginIndex = nextProcBeginIndex;
             procEndIndex = nextProcEndIndex;
         }
-        
+
         chp::_dumpChunk(h_thinDataBuffer, mngr, lastProcBeginIndex, lastProcEndIndex);
-        
+
 		mngr.endOneThinningStep();
         mngr.swapGroup();
     }
@@ -466,9 +475,18 @@ namespace thin
 	template <typename MNGR>
 	void chunkwiseThinning(MNGR& mngr, const IjkType& size3D, unsigned curIter, unsigned dim, unsigned p, unsigned maxIter)
 	{
+		std::cout << "chunkwiseThinning() ";
+    std::cout << " numChunks() " << mngr.numChunks();
+    std::cout << " curIter " << curIter;
+    std::cout << " maxIter " << maxIter << std::endl;
+
+		auto TIMER = std::chrono::high_resolution_clock::now();
+
 		bool ramThinning = (mngr.numChunks() == 1);
 		while ((curIter < maxIter) && (!ramThinning))
 		{
+			std::cout << "chunkwiseThinning() notRam itter" << curIter << std::endl;
+
 			while (true)
 			{
 				// fullThinningOnce(policy, mngr, chunkSize, numSlices, size3D, curIter, dim, p);
@@ -483,7 +501,7 @@ namespace thin
 
 			dim = 3U;
 			++curIter;
-			
+
 			// stop using chunk-wise thinning
 			ramThinning = (mngr.numChunks() == 1);
 		}
@@ -498,8 +516,12 @@ namespace thin
 			unsigned procBeginIndex, procEndIndex;
 
 			mngr.beginOneThinningStep();
-			chp::_loadChunkI(h_thinData, mngr, 0, mngr.numSlices(), procBeginIndex, procEndIndex);
 
+			TIMER = std::chrono::high_resolution_clock::now();
+			chp::_loadChunkI(h_thinData, mngr, 0, mngr.numSlices(), procBeginIndex, procEndIndex);
+			TIMER_END(">> chunkwiseThinning::_loadChunkI()", TIMER);
+
+			TIMER = std::chrono::high_resolution_clock::now();
 			DevDataPack::InitParams packInitParams;
 			packInitParams.arrSize = h_thinData.compactIjkVec.size();
 			packInitParams.size3D = size3D;
@@ -508,20 +530,35 @@ namespace thin
 
 			DevDataPack thinData(packInitParams);
 			thinData.alloc();
-			
-			_copyThinningDataToDevice(thinData, h_thinData);
-			persistenceIsthmusThinningCore(thinData, curIter, p, maxIter);
+      TIMER_END(">> chunkwiseThinning::init thinData", TIMER);
 
+      TIMER = std::chrono::high_resolution_clock::now();
+			_copyThinningDataToDevice(thinData, h_thinData);
+			TIMER_END(">> chunkwiseThinning::_copyThinningDataToDevice()", TIMER);
+
+			TIMER = std::chrono::high_resolution_clock::now();
+			persistenceIsthmusThinningCore(thinData, curIter, p, maxIter);
+			TIMER_END(">> chunkwiseThinning::persistenceIsthmusThinningCore()", TIMER);
+
+			TIMER = std::chrono::high_resolution_clock::now();
 			h_thinData.clear();
 			procEndIndex = thinData.arrSize;
 			h_thinData.resize(thinData.arrSize);
 			_copyThinningDataToHost(h_thinData, thinData);
+			TIMER_END(">> chunkwiseThinning::_copyThinningDataToHost()", TIMER);
 
+			TIMER = std::chrono::high_resolution_clock::now();
 			thinData.dispose();
 			chp::_dumpChunk(h_thinData, mngr, procBeginIndex, procEndIndex);
+			TIMER_END(">> chunkwiseThinning::_dumpChunk()", TIMER);
 
+			// archive before swap
+      mngr.archive(curIter);
+
+			TIMER = std::chrono::high_resolution_clock::now();
 			mngr.endOneThinningStep();
 			mngr.swapGroup();
+			TIMER_END(">> chunkwiseThinning::swapGroup()", TIMER);
 		}
 	}
 
@@ -536,19 +573,19 @@ namespace thin
 		namespace chp = chunk::_private;
 
         unsigned numChunks = (numSlices + chunkSize - 1U) / chunkSize;
-        
+
 		HostDataPack h_thinData;
 		HostDataPack h_thinDataBuffer;
-        
+
         unsigned beginSlice = 0;
         bool hasOutput = false;
-        
+
         unsigned procBeginIndex, procEndIndex;
         unsigned lastProcBeginIndex, lastProcEndIndex;
         unsigned nextProcBeginIndex, nextProcEndIndex;
-        
+
         chp::_loadChunk(policy, h_thinData, mngr, beginSlice, chunkSize, numSlices, procBeginIndex, procEndIndex);
-        
+
 		std::cout << "Cur iter: " << curIter << ", dim: " << dim << std::endl;
         for (unsigned chunkIdx = 0; chunkIdx < numChunks; ++chunkIdx)
         {
@@ -562,7 +599,7 @@ namespace thin
                 chp::_loadChunk(policy, h_thinDataBuffer, mngr, beginSlice + chunkSize, chunkSize, numSlices,
                            nextProcBeginIndex, nextProcEndIndex);
             });
-            
+
 			DevDataPack::InitParams packInitParams;
 			packInitParams.arrSize = h_thinData.compactIjkVec.size();
 			packInitParams.size3D = size3D;
@@ -571,13 +608,13 @@ namespace thin
 
 			DevDataPack thinData(packInitParams);
 			thinData.alloc();
-			
+
 			_copyThinningDataToDevice(thinData, h_thinData);
-			
+
 			thinData.procBeginIndex = procBeginIndex;
 			thinData.procEndIndex = procEndIndex;
 
-			std::cout << "  chunk: " << chunkIdx << ", size: " << thinData.arrSize 
+			std::cout << "  chunk: " << chunkIdx << ", size: " << thinData.arrSize
 					<< ", proc begin: " << procBeginIndex << ", proc end: " << procEndIndex << std::endl;
 
 			dim3 threadsDim(numThreadsPerBlock(), 1U, 1U);
@@ -595,18 +632,18 @@ namespace thin
 
             hasOutput = true;
             ioThread.join();
-            
+
             h_thinData.swap(h_thinDataBuffer);
-            
+
             lastProcBeginIndex = procBeginIndex;
             lastProcEndIndex = procEndIndex;
-            
+
             procBeginIndex = nextProcBeginIndex;
             procEndIndex = nextProcEndIndex;
         }
-        
+
         chp::_dumpChunk(policy, h_thinDataBuffer, mngr, lastProcBeginIndex, lastProcEndIndex);
-        
+
         mngr.swapGroup();
     }*/
 }; // namespace thin;

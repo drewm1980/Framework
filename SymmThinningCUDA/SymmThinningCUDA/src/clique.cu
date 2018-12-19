@@ -6,6 +6,14 @@
 #include "cuda_includes.h"
 #include "clique.cuh"
 
+// For profiling execution times
+#include <chrono>
+#ifndef TIMER_END
+#define TIMER_END(str, start) std::cout << std::setw(6) << std::right << \
+  std::chrono::duration_cast<std::chrono::milliseconds>( \
+	std::chrono::high_resolution_clock::now()-start).count() << \
+	" ms " << str << std::endl;
+#endif
 
 namespace thin
 {
@@ -31,7 +39,7 @@ namespace thin
 				// D2::m_mat_Y, D1::m_mat_2
 				0, -1, 0, 1, 0, 0, 0, 0, 1,                 // 9
 				// rotate -90 degrees around Y axis
-				// D2::m_mat_Z, 
+				// D2::m_mat_Z,
 				0, 0, -1, 0, 1, 0, 1, 0, 0,                 // 18
 				// roate -90 degrees around X axis
 				// D1::m_mat_5, D0::m_mat_5
@@ -66,7 +74,7 @@ namespace thin
 			// the beginning index in the device texture reference for the indices of the
 			// neighborhood offsets
 			const uint8_t D3nbOffsIndexTexBegin = 0;
-			
+
 			// Dim 2, Face
 			//
 			// number of voxels to form the essential 2-clique
@@ -122,7 +130,7 @@ namespace thin
 			// Indices of the neighborhood offsets array size
 			const unsigned NB_OFFS_IDX_ARR_SIZE = D3nbOffsIndexArrSize + D2nbOffsIndexArrSize + D1nbOffsIndexArrSize + D0nbOffsIndexArrSize;
 			const unsigned NB_OFFS_ARR_SIZE = 26U;
-			
+
 			// Essential clique array
 			const OffsetIjkType h_ecOffsetArr[EC_ARR_SIZE] =
 			{
@@ -141,7 +149,7 @@ namespace thin
 			// For each dimension d, the associated entry is a list of tuples with variable
 			// length. For this to work on the device side, there is a -1 inserted between
 			// every two tuples, indicating the end of the previous one.
-			const int8_t h_coreCliqueArr[CORE_CLQ_ARR_SIZE] = 
+			const int8_t h_coreCliqueArr[CORE_CLQ_ARR_SIZE] =
 			{
 				// Dim 3 does not have any core clique index
 				// Dim 2
@@ -157,7 +165,7 @@ namespace thin
 			};
 
 			// Indices of neighborhood offsets array
-			const uint8_t h_nbOffsIndexArr[NB_OFFS_IDX_ARR_SIZE] = 
+			const uint8_t h_nbOffsIndexArr[NB_OFFS_IDX_ARR_SIZE] =
 			{
 				// Dim 3 nb offset indices
 				0, 11, 3, 8, 20, 10, 1, 9, 2, 12, 24, 15, 21, 23, 13, 22, 14, 4, 19, 7, 16, 25, 18, 5, 17, 6,
@@ -195,13 +203,13 @@ namespace thin
 			std::unique_ptr<DevArrPtrs> DevArrPtrs::m_instance = nullptr;
 
 			tp::Int8TexType matEntryTex;
-			
+
 			tp::OffsetIjkTexType ecOffsetTex;
 			tp::Int8TexType coreCliqueTex;
 			tp::Uint8TexType nbOffsIndexTex;
 
 			// Initialize the device texture references of this module.
-			void 
+			void
 			_initDeviceTex(OffsetCompType** d_matEntryArr, OffsetIjkType** d_ecOffsetArr, int8_t** d_coreCliqueArr, uint8_t** d_nbOffsIndexArr)
 			{
 				const cudaChannelFormatDesc int8Desc = cudaCreateChannelDesc(8 * sizeof(OffsetCompType), 0, 0, 0, cudaChannelFormatKindSigned);
@@ -211,11 +219,11 @@ namespace thin
 				checkCudaErrors(cudaMalloc(d_matEntryArr, sizeof(OffsetCompType) * matEntryArrSize));
 				checkCudaErrors(cudaMemcpy(*d_matEntryArr, h_matEntryArr, sizeof(OffsetCompType) * matEntryArrSize, cudaMemcpyHostToDevice));
 				checkCudaErrors(cudaBindTexture(0, matEntryTex, *d_matEntryArr, int8Desc, sizeof(OffsetCompType) * matEntryArrSize));
-				
+
 				checkCudaErrors(cudaMalloc(d_ecOffsetArr, sizeof(OffsetIjkType) * EC_ARR_SIZE));
 				checkCudaErrors(cudaMemcpy(*d_ecOffsetArr, h_ecOffsetArr, sizeof(OffsetIjkType) * EC_ARR_SIZE, cudaMemcpyHostToDevice));
 				checkCudaErrors(cudaBindTexture(0, ecOffsetTex, *d_ecOffsetArr, char4Desc, sizeof(OffsetIjkType) * EC_ARR_SIZE));
-				
+
 				checkCudaErrors(cudaMalloc(d_coreCliqueArr, sizeof(int8_t) * CORE_CLQ_ARR_SIZE));
 				checkCudaErrors(cudaMemcpy(*d_coreCliqueArr, h_coreCliqueArr, sizeof(int8_t) * CORE_CLQ_ARR_SIZE, cudaMemcpyHostToDevice));
 				checkCudaErrors(cudaBindTexture(0, coreCliqueTex, *d_coreCliqueArr, int8Desc, sizeof(int8_t) * CORE_CLQ_ARR_SIZE));
@@ -226,7 +234,7 @@ namespace thin
 			}
 
 			// Unbinds the GPU texture references and frees the device memory.
-			void 
+			void
 			_clearDeviceTex(OffsetCompType* d_matEntryArr, OffsetIjkType* d_ecOffsetArr, int8_t* d_coreCliqueArr, uint8_t* d_nbOffsIndexArr)
 			{
 				checkCudaErrors(cudaFree(d_matEntryArr));
@@ -234,7 +242,7 @@ namespace thin
 				checkCudaErrors(cudaFree(d_coreCliqueArr));
 				checkCudaErrors(cudaFree(d_nbOffsIndexArr));
 			}
-            
+
 			__device__ OffsetIjkType _fetchEcOffset(uint8_t ecOffsetIdx)
 			{
 				return tex1Dfetch(ecOffsetTex, ecOffsetIdx);
@@ -318,7 +326,7 @@ namespace thin
 			{
 				return 2U;
 			}
-		
+
 			__device__ uint8_t Dim2CliquePolicy::ecOffsetArrBegin()
 			{
 				return D2ecTexBegin;
@@ -368,7 +376,7 @@ namespace thin
 			}
 
 			// Dim1CliquePolicy
-			
+
 			__device__ uint8_t Dim1CliquePolicy::numFaceTokens()
 			{
 				return 6U;
@@ -432,9 +440,9 @@ namespace thin
 				default:
 					return 0xff;
 				}
-				
+
 			}
-			
+
 			// Dim0CliquePolicy
 			__device__ uint8_t Dim0CliquePolicy::numFaceTokens()
 			{
@@ -498,7 +506,7 @@ namespace thin
 			// This is necessary due to few libraries on the device side.
 			//
 			// [precondition] @comapctIjkArr is sorted in ascending order.
-			__device__ ArrIndexType 
+			__device__ ArrIndexType
 			_binSearch(const IjkType* compactIjkArr, const IjkType& targetIjk, ArrIndexType lo, ArrIndexType hi)
 			{
 				ArrIndexType mid;
@@ -545,8 +553,8 @@ namespace thin
 				}
 			}
 			/*
-			// Find the targetIjk 3D discrete coordinate in compactIjkArr, if the reference 
-			// 3D coord refIjk and its index in compactIjkArr, refIndex, are Unknown. The 
+			// Find the targetIjk 3D discrete coordinate in compactIjkArr, if the reference
+			// 3D coord refIjk and its index in compactIjkArr, refIndex, are Unknown. The
 			// function will have to search for the entire array.
 			// [precondition]: comapctIjkArr is sorted
 			__device__ ArrIndexType
@@ -562,12 +570,12 @@ namespace thin
 			// [precondition] @compactIjkArr[@refIndex] == @refIjk
 			// [postcondition] If returns is true, then @compactIjkArr[@foundIndex] ==
 			// @refIjk + @offs.
-			__device__ bool 
-			_find(ArrIndexType& foundIndex, const IjkType* compactIjkArr, const unsigned arrSize, const IjkType& refIjk, 
+			__device__ bool
+			_find(ArrIndexType& foundIndex, const IjkType* compactIjkArr, const unsigned arrSize, const IjkType& refIjk,
 					const ArrIndexType refIndex, const OffsetIjkType& offs, const IjkType& size3D)
 			{
                 IjkType targetIjk;
-                
+
 				if (!tp::_isInBoundary(refIjk, offs, size3D, targetIjk))
 				{
 					return false;
@@ -577,7 +585,7 @@ namespace thin
                 return foundIndex != INVALID_UINT;
             }
 			/*
-			__device__ bool 
+			__device__ bool
 			_find(ArrIndexType& foundIndex, const IjkType* compactIjkArr, const unsigned arrSize, const IjkType& refIjk,
 				const ArrIndexType refIndex, const IjkType& size3D)
             {
@@ -589,7 +597,7 @@ namespace thin
 			// if @refIjk + @offs is indeed found in @compactIjkArr, we need to check the
 			// @nthBit of the corresponding entry in @recBitsArr, and only when that bit is
 			// set does the function return true.
-			__device__ bool 
+			__device__ bool
 			_findInRecBitsArr(ArrIndexType& foundIndex, const IjkType* compactIjkArr, const RecBitsType* recBitsArr,
 				const uint8_t nthBit, const unsigned arrSize, const IjkType& refIjk, const ArrIndexType refIndex,
 				const OffsetIjkType& offs, const IjkType& size3D)
@@ -598,23 +606,23 @@ namespace thin
 				{
 					return false;
 				}
-                
+
                 return tp::_readBit(recBitsArr[foundIndex], nthBit) == 1;
             }
 
-			__device__ bool 
+			__device__ bool
 			_findInX(ArrIndexType& foundIndex, const IjkType* compactIjkArr, const RecBitsType* recBitsArr,
-					const unsigned arrSize, const IjkType& refIjk, const ArrIndexType refIndex, 
+					const unsigned arrSize, const IjkType& refIjk, const ArrIndexType refIndex,
 					const OffsetIjkType& offs, const IjkType& size3D)
 			{
 				using namespace details;
 				return _findInRecBitsArr(foundIndex, compactIjkArr, recBitsArr, REC_BIT_X, arrSize,
 										refIjk, refIndex, offs, size3D);
 			}
-			
+
 			__device__ bool
-			// _findInX(ArrIndexType& foundIndex, const ThinningData& thinData, const IjkType& refIjk, 
-			_findInX(ArrIndexType& foundIndex, const details::DevDataPack& thinData, const IjkType& refIjk, 
+			// _findInX(ArrIndexType& foundIndex, const ThinningData& thinData, const IjkType& refIjk,
+			_findInX(ArrIndexType& foundIndex, const details::DevDataPack& thinData, const IjkType& refIjk,
 					const ArrIndexType refIndex, const OffsetIjkType& offs)
 			{
 				bool found = _findInX(foundIndex, thinData.compactIjkArr, thinData.recBitsArr, thinData.arrSize,
@@ -628,16 +636,16 @@ namespace thin
 				return found;
 			}
 
-			__device__ bool 
+			__device__ bool
 			_containsInX(const IjkType* compactIjkArr, const RecBitsType* recBitsArr,
-					const unsigned arrSize, const IjkType& refIjk, const ArrIndexType refIndex, 
+					const unsigned arrSize, const IjkType& refIjk, const ArrIndexType refIndex,
 					const OffsetIjkType& offs, const IjkType& size3D)
             {
                 ArrIndexType foundIndex;
                 return _findInX(foundIndex, compactIjkArr, recBitsArr, arrSize, refIjk, refIndex, offs, size3D);
             }
 
-			__device__ bool 
+			__device__ bool
 			// _containsInX(const ThinningData& thinData, const IjkType& refIjk, const ArrIndexType refIndex, const OffsetIjkType& offs)
 			_containsInX(const details::DevDataPack& thinData, const IjkType& refIjk, const ArrIndexType refIndex, const OffsetIjkType& offs)
             {
@@ -655,7 +663,7 @@ namespace thin
 					return flag;
 				};
 
-				return checker(ijk.x, offsIjk.x, resultIjk.x) && 
+				return checker(ijk.x, offsIjk.x, resultIjk.x) &&
 						checker(ijk.y, offsIjk.y, resultIjk.y) &&
 						checker(ijk.z, offsIjk.z, resultIjk.z);
 			}
@@ -663,15 +671,15 @@ namespace thin
 			__device__ nb::NbMaskType _genNbMaskFromCliqueNbMask(nb::NbMaskType cliqueNbMask, uint8_t nthNb)
 			{
 				nb::NbMaskType nbMask = 0;
-				
+
 				OffsetIjkType curIjk = nb::fetchNbOffset(nthNb);
 
 				for (uint8_t nbOffsetIdx = 0; nbOffsetIdx < NB_OFFS_ARR_SIZE; ++nbOffsetIdx)
 				{
 					OffsetIjkType offsIjk = nb::fetchNbOffset(nbOffsetIdx);
-			
+
 					OffsetIjkType targetIjk;
-					
+
 					if (_isInNbBoundary(curIjk, offsIjk, targetIjk))
 					{
 						uint8_t targetNthBit = nb::fetchIndexOfNbOffset(targetIjk);
@@ -753,7 +761,7 @@ namespace thin
 				index = index * blockDim.x + threadIdx.x;
 				if (index >= arrSize) return;
 
-				flagArr[index] = tp::_readBit(recBitsArr[index], REC_BIT_X) 
+				flagArr[index] = tp::_readBit(recBitsArr[index], REC_BIT_X)
 								|| tp::_readBit(recBitsArr[index], REC_BIT_K);
 			}
 
@@ -765,7 +773,7 @@ namespace thin
 				index = index * blockDim.x + threadIdx.x;
 
 				if ((index >= arrSize) || (flagArr[index] == 0)) return;
-				
+
 				ArrIndexType newIndex = flagScanArr[index];
 				dstArr[newIndex] = srcArr[index];
 			}
@@ -777,7 +785,7 @@ namespace thin
 				ArrIndexType index = blockIdx.y * gridDim.x + blockIdx.x;
 				index = index * blockDim.x + threadIdx.x;
 
-				if (index >= arrSize) return;         
+				if (index >= arrSize) return;
 
 				if (tp::_readBit(recBitsArr[index], REC_BIT_Z) && (birthArr[index] == 0))
 				{
@@ -800,7 +808,7 @@ namespace thin
 				}
 			}
 
-			unsigned _flagVoxelsInXorK(ArrIndexType* d_flagArr, ArrIndexType* d_flagScanArr, const RecBitsType* d_recBitsArr, 
+			unsigned _flagVoxelsInXorK(ArrIndexType* d_flagArr, ArrIndexType* d_flagScanArr, const RecBitsType* d_recBitsArr,
 										const unsigned arrSize, const dim3& blocksDim, const dim3& threadsDim)
 			{
 				// Find out the active voxels in X or K after one iteration of thinning
@@ -826,14 +834,14 @@ namespace thin
 				ArrIndexType* d_flagArr;
 				checkCudaErrors(cudaMalloc(&d_flagArr, sizeof(ArrIndexType) * thinData.arrSize));
 				checkCudaErrors(cudaMemset(d_flagArr, 0, sizeof(ArrIndexType) * thinData.arrSize));
-				
+
 				ArrIndexType* d_flagScanArr;
 				checkCudaErrors(cudaMalloc(&d_flagScanArr, sizeof(ArrIndexType) * thinData.arrSize));
 				checkCudaErrors(cudaMemset(d_flagScanArr, 0, sizeof(ArrIndexType) * thinData.arrSize));
 
 				unsigned newArrSize = _flagVoxelsInXorK(d_flagArr, d_flagScanArr, thinData.recBitsArr, thinData.arrSize, blocksDim, threadsDim);
-				
-				// Create two new arrays to stgore the active voxels information by 
+
+				// Create two new arrays to stgore the active voxels information by
 				// performing a scatter operation on the original two arrays.
 				IjkType* d_dstIjkArr;
 				checkCudaErrors(cudaMalloc(&d_dstIjkArr, sizeof(IjkType) * newArrSize));
@@ -849,11 +857,11 @@ namespace thin
 
 				RecBitsType* d_dstRecBitsArr;
 				checkCudaErrors(cudaMalloc(&d_dstRecBitsArr, sizeof(RecBitsType) * newArrSize));
-				
+
 				_compactArrsKern<<<blocksDim, threadsDim>>>(d_dstRecBitsArr, thinData.recBitsArr, d_flagArr, d_flagScanArr, thinData.arrSize);
 				cudaDeviceSynchronize();
 				checkCudaErrors(cudaGetLastError());
-				
+
 				checkCudaErrors(cudaFree(thinData.recBitsArr));
 				thinData.recBitsArr = d_dstRecBitsArr;
 
@@ -874,7 +882,7 @@ namespace thin
 				{
 					ObjIdType* d_dstVoxelIdArr;
 					checkCudaErrors(cudaMalloc(&d_dstVoxelIdArr, sizeof(ObjIdType) * newArrSize));
-					
+
 					_compactArrsKern<<<blocksDim, threadsDim>>>(d_dstVoxelIdArr, thinData.voxelIdArr, d_flagArr, d_flagScanArr, thinData.arrSize);
 					cudaDeviceSynchronize();
 					checkCudaErrors(cudaGetLastError());
@@ -882,10 +890,10 @@ namespace thin
 
 					thinData.voxelIdArr = d_dstVoxelIdArr;
 				}
-				
+
 				checkCudaErrors(cudaFree(d_flagArr));
 				checkCudaErrors(cudaFree(d_flagScanArr));
-				
+
 				return newArrSize;
 			}
 		}; // namespace thin::clique::_private;
@@ -907,39 +915,62 @@ namespace thin
 		{
 			using namespace details;
 
+			auto TIMER = std::chrono::high_resolution_clock::now();
 			cp::_assignKern<<<blocksDim, threadsDim>>>(thinData.recBitsArr, thinData.arrSize, REC_BIT_K, REC_BIT_Y);
+			TIMER_END(">>>> crucialIsthmus::_assignKern()", TIMER);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
+			TIMER = std::chrono::high_resolution_clock::now();
 			cp::_clearKern<<<blocksDim, threadsDim>>>(thinData.recBitsArr, thinData.arrSize, REC_BIT_Z);
+			TIMER_END(">>>> crucialIsthmus::_clearKern()", TIMER);
 			cudaDeviceSynchronize();
 			checkCudaErrors(cudaGetLastError());
 			// clear A and B set
+			TIMER = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-			
+			TIMER_END(">>>> crucialIsthmus::cudaMemset(clear A and B set)", TIMER);
+
 			// Find 3-cliques that are crucial for <X, K>
+			TIMER = std::chrono::high_resolution_clock::now();
 			dimCrucialIsthmus<D3CliqueChecker>(thinData, blocksDim, threadsDim);
+			TIMER_END(">>>> crucialIsthmus::D3CliqueChecker(find 3-cliques that are crucial for <X, K>)", TIMER);
+
 			// clear A and B set
+			TIMER = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-			
+			TIMER_END(">>>> crucialIsthmus::cudaMemset(clear A and B set)", TIMER);
+
 			// Find 2-cliques that are crucial for <X, K>
+			TIMER = std::chrono::high_resolution_clock::now();
 			dimCrucialIsthmus<D2CliqueChecker>(thinData, blocksDim, threadsDim);
+			TIMER_END(">>>> crucialIsthmus::D2CliqueChecker(Find 2-cliques that are crucial for <X, K>)", TIMER);
 			// clear A and B set
+			TIMER = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-			
+			TIMER_END(">>>> crucialIsthmus::cudaMemset(clear A and B set)", TIMER);
+
 			// Find 1-cliques that are crucial for <X, K>
+			TIMER = std::chrono::high_resolution_clock::now();
 			dimCrucialIsthmus<D1CliqueChecker>(thinData, blocksDim, threadsDim);
+			TIMER_END(">>>> crucialIsthmus::D1CliqueChecker(Find 1-cliques that are crucial for <X, K>)", TIMER);
 			// clear A and B set
+			TIMER = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
-			
+			TIMER_END(">>>> crucialIsthmus::cudaMemset(clear A and B set)", TIMER);
+
 			// Find 0-cliques that are crucial for <X, K>
+			TIMER = std::chrono::high_resolution_clock::now();
 			dimCrucialIsthmus<D0CliqueChecker>(thinData, blocksDim, threadsDim);
+			TIMER_END(">>>> crucialIsthmus::D0CliqueChecker(Find 0-cliques that are crucial for <X, K>)", TIMER);
 			// clear A and B set
+			TIMER = std::chrono::high_resolution_clock::now();
 			checkCudaErrors(cudaMemset(thinData.A_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
 			checkCudaErrors(cudaMemset(thinData.B_recBitsArr, 0, sizeof(RecBitsType) * thinData.arrSize));
+			TIMER_END(">>>> crucialIsthmus::cudaMemset(clear A and B set)", TIMER);
 		}
 	}; // namespace thin::clique;
 }; // namespace thin;

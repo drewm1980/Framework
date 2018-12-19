@@ -7,6 +7,8 @@
 #include <string>
 #include <sstream>
 #include <boost/filesystem.hpp>
+// for archive
+#include <chrono>
 
 #include <H5Cpp.h>
 
@@ -39,14 +41,14 @@ namespace h5_io
 		, m_curDumpChunkBeginSlice(~0)
 		, m_isDumpFileOpen(false)
 		, m_lastDumpedSlice(~0)
-		, m_numVoxelsDumpedInChunk(0) 
+		, m_numVoxelsDumpedInChunk(0)
 		, m_originalNumSlices(0)
-		{ 
+		{
 			m_loadChunkRangeMap.clear();
 
 			std::stringstream ss;
 			ss << m_oldGroupname << "/" << m_chunkRangeFilename;
-			
+
 			std::ifstream fh(ss.str());
 			std::string line;
 			unsigned lo, hi;
@@ -56,7 +58,7 @@ namespace h5_io
 				lss >> lo >> hi;
 				m_loadChunkRangeMap.push_back(std::make_pair(lo, hi));
 			}
-      
+
       if(m_loadChunkRangeMap.size()>0)
       {
         m_originalNumSlices = m_loadChunkRangeMap.back().second;
@@ -66,7 +68,7 @@ namespace h5_io
       }
 
 		}
-        
+
         class Iterator;
         class Range;
         // Load a slice of data into RAM, which is the currently managed slice.
@@ -108,13 +110,13 @@ namespace h5_io
 				m_curDumpChunkBeginSlice = 0;
 				// m_lastDumpedSlice = 0;
 				m_numVoxelsDumpedInChunk = 0;
-				
+
 				std::string h5filename = _getH5Filename(m_newGroupname, m_curDumpChunk);
 				_createDumpH5File(h5filename);
 				m_isDumpFileOpen = true;
 			}
 			// Althoug slices between (@m_lastDumpedSlices, m_curSlice) do not exist
-			// we need to store an empty slice for each of them to conform to the 
+			// we need to store an empty slice for each of them to conform to the
 			// protocal used by our HDF5 dataset format.
 			unsigned m_curSliceCopy = m_curSlice;
 			m_curSlice = (m_lastDumpedSlice == (~0)) ? 0 : (m_lastDumpedSlice + 1U);
@@ -131,7 +133,7 @@ namespace h5_io
 			m_lastDumpedSlice = m_curSlice;
 			_clear();
 
-			// It is only when we have stored an amount of voxels >= @m_maxNumVoxelsInChunk in 
+			// It is only when we have stored an amount of voxels >= @m_maxNumVoxelsInChunk in
 			// the RAM will we make the actual dump happen.
 			if (m_numVoxelsDumpedInChunk >= m_maxNumVoxelsInChunk)
 			{
@@ -179,7 +181,7 @@ namespace h5_io
 		{
 			m_recBitsVec.push_back(bits);
 		}
-		
+
 		void beginOneThinningStep() { }
 		void endOneThinningStep()
 		{
@@ -199,7 +201,7 @@ namespace h5_io
 			m_curLoadChunk = ~0;
 			m_curLoadChunkBeginSlice = ~0;
 			m_curLoadChunkEndSlice = 0;
-		
+
 			m_isLoadFileOpen = false;
 
 			m_curDumpChunk = ~0;
@@ -212,76 +214,120 @@ namespace h5_io
 		}
 
         void swapGroup()
-		{ 
+		{
 			io_shared::swapGroupFiles(m_oldGroupname, m_newGroupname);
 
 			m_loadChunkRangeMap.swap(m_dumpChunkRangeMap);
 			m_dumpChunkRangeMap.clear();
 		}
-        
+
+		void archive(unsigned curIter)
+		{
+			//boost::filesystem::path sourcedir(m_newGroupname);
+			boost::filesystem::path sourcedir(m_oldGroupname);
+
+			std::chrono::steady_clock::time_point time = std::chrono::steady_clock::now();
+			// auto time = std::chrono::time_point::time_since_epoch();
+			//auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(time).count();
+
+			std::stringstream ss;
+			ss << "archive/iter_" << curIter << "_" << time.time_since_epoch().count();
+			boost::filesystem::path destdir(ss.str());
+
+			std::cout << "h5_io.h:archive() from " << sourcedir << " to " << destdir << std::endl;
+
+			if (! boost::filesystem::is_directory("archive"))
+				boost::filesystem::create_directory("archive");
+
+			if (! boost::filesystem::is_directory(destdir))
+				boost::filesystem::copy_directory(sourcedir, destdir);
+			else
+				std::cout << "!!!!!!! already exists" << destdir << "!!!!!!!" << std::endl;
+			//boost::filesystem::create_directory(ss.str());
+			// copy files
+			// remove all the files in the "old" group
+			boost::filesystem::directory_iterator end;
+			for(boost::filesystem::directory_iterator it(sourcedir); it != end; ++it)
+			{
+				try
+				{
+					boost::filesystem::path current(it->path());
+					if(boost::filesystem::is_regular_file(current))
+					{
+						boost::filesystem::copy_file(it->path(), destdir / current.filename());
+					}
+				}
+				catch(const std::exception &ex)
+				{
+					std::cerr << ex.what() << std::endl;
+					// ex;
+				}
+			}
+
+		}
         class Iterator
         {
         public:
             Iterator();
-            
+
             const Iterator& operator*() const { return *this; }
-            
+
             inline unsigned x() const
             {
 				unsigned flattenIjk = m_mngr->m_flattenIjkVec[m_index];
 				return flattenIjk % (m_mngr->m_width);
             }
-            
+
             inline unsigned y() const
             {
 				unsigned flattenIjk = m_mngr->m_flattenIjkVec[m_index];
 				return flattenIjk / (m_mngr->m_width);
             }
-            
+
             inline unsigned ID() const
             {
 				unsigned id = m_mngr->m_voxelIdVec[m_index];
                 return id;
             }
-            
+
             inline RecBitsType recBits() const
             {
 				RecBitsType bits = m_mngr->m_recBitsVec[m_index];
 				return bits;
             }
-            
+
             inline unsigned birth() const
             {
 				unsigned b = m_mngr->m_birthVec[m_index];
                 return b;
             }
-            
+
             Iterator& operator++()
-            {     
+            {
 				if (m_index < m_mngr->m_flattenIjkVec.size())
 				{
 					++m_index;
 				}
                 return *this;
             }
-            
+
             Iterator operator++(int)
             {
                 Iterator tmp(*this);
                 ++(*this);
                 return tmp;
             }
-            
+
             bool operator==(const Iterator& rhs) const
             {
                 return (m_mngr == rhs.m_mngr) && (m_index == rhs.m_index);
             }
-            
+
             bool operator!=(const Iterator& rhs) const
             {
                 return !(this->operator==(rhs));
             }
-            
+
         private:
             friend class Range;
 
@@ -290,12 +336,12 @@ namespace h5_io
 			const H5SliceIoManager* m_mngr;
 			unsigned m_index;
         }; // class H5SliceIoManager::Iterator
-        
+
         class Range
         {
         public:
             Range() { }
-            
+
 			inline Iterator begin() const { return Iterator(m_mngr, 0); }
 			inline Iterator end() const { return Iterator(m_mngr, (unsigned)(m_mngr->m_flattenIjkVec.size())); }
         private:
@@ -304,7 +350,7 @@ namespace h5_io
 			Range(const H5SliceIoManager* mngr) : m_mngr(mngr) { }
 			const H5SliceIoManager* m_mngr;
         }; // class H5SliceIoManager::Range
-        
+
     private:
 		inline unsigned _getFlattenIjk(unsigned x, unsigned y)
 		{
@@ -312,7 +358,7 @@ namespace h5_io
 			// Do not need to store the third dimension
 			return x + y * m_width;
 		}
-		
+
 		void _clear()
 		{
 			m_flattenIjkVec.clear();
@@ -353,7 +399,7 @@ namespace h5_io
 
 		void _openLoadH5File(const std::string& filename, unsigned flag = H5F_ACC_RDONLY)
 		{
-			if (m_isLoadFileOpen) 
+			if (m_isLoadFileOpen)
 			{
 				m_loadH5File.close();
 			}
@@ -365,7 +411,7 @@ namespace h5_io
 
 		void _createDumpH5File(const std::string& filename, unsigned flag = H5F_ACC_TRUNC)
 		{
-			if (m_isDumpFileOpen) 
+			if (m_isDumpFileOpen)
 			{
 				m_dumpH5File.close();
 			}
@@ -374,7 +420,7 @@ namespace h5_io
 
 			m_dumpH5File = H5::H5File(filename, flag);
 		}
-		
+
 		std::string _getH5Filename(const std::string& group, unsigned chunk) const
 		{
 			std::stringstream ss;
@@ -390,7 +436,7 @@ namespace h5_io
 			ss << localSliceIndex;
 			return ss.str();
 		}
-		
+
 		void _dumpRangeMap()
 		{
 			// if (m_dumpChunkRangeMap.size() == m_curDumpChunk)
@@ -477,7 +523,7 @@ namespace h5_io
 
 			hsize_t dims[2U];
 			std::vector<unsigned> tmpDataVec;
-			
+
 			// if (m_flattenIjkVec.size() == 0)
 			if (enforceEmpty || (m_flattenIjkVec.size() == 0))
 			{
@@ -546,7 +592,7 @@ namespace h5_io
 		unsigned m_curLoadChunk;
 		unsigned m_curLoadChunkBeginSlice;
 		unsigned m_curLoadChunkEndSlice;
-		
+
 		bool m_isLoadFileOpen;
 		H5::H5File m_loadH5File;
 		std::vector< std::pair<unsigned, unsigned> > m_loadChunkRangeMap;
@@ -562,7 +608,7 @@ namespace h5_io
 		unsigned m_numVoxelsDumpedInChunk;
 
 		unsigned m_originalNumSlices;
-	}; 
+	};
 }; // namespace h5_io
 
 #endif
