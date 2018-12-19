@@ -76,6 +76,8 @@ Draw the data in 3d:
 
     python ./h5_visualize.py 256 ./originalH5/
 
+![](h5_visualize.png)
+
 Currently the code attempts to archive intermediary stages into ./archive and
 these could also be visualized:
 
@@ -88,6 +90,8 @@ When examining the efficiency of this package we observe that the example
 requires 34 iterations. The first takes 253 ms with the last taking 8 ms. In
 total all iterations take 1336 ms. See ``run_256.log`` file for details. This
 can also be confirmed by reviewing in nvvp (``nvvp main-3304.nvprof``)
+
+![](main-3304.nvprof.png)
 
 When running on a different dataset, example a dimension of 480x480x480, we
 observe thinning takes a total of 44 iterations. The first takes ms with the
